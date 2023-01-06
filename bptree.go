@@ -1,0 +1,445 @@
+// Copyright 2023 Dmitry Dikun
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bptree
+
+import (
+	"errors"
+	"math"
+)
+
+type Key interface {
+	int | uint | int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | string
+}
+
+type BPTree[K Key] struct {
+	root *node[K]
+	size int
+}
+
+func NewBPTree[K Key](order int) (*BPTree[K], error) {
+	if order < 3 {
+		return nil, errors.New("BPTree order too small")
+	}
+	return &BPTree[K]{
+		root: newLeafNode[K](order),
+	}, nil
+}
+
+func (t *BPTree[K]) Size() int {
+	return t.size
+}
+
+func (t *BPTree[K]) Find(key K) (any, bool) {
+	n := t.root
+NodesLoop:
+	for n.isInternal() {
+		for i, c := range n.children {
+			if i == len(n.keys) || key < n.keys[i] {
+				n = c
+				continue NodesLoop
+			}
+		}
+	}
+	for i, k := range n.keys {
+		if k == key {
+			return n.values[i], true
+		}
+	}
+	return nil, false
+}
+
+func (t *BPTree[K]) Insert(key K, val any) {
+	n := t.root
+	if key2, n2 := n.insert(key, val); n2 != nil {
+		if n.isLeaf() {
+			t.root = newInternalNode[K](cap(n.keys))
+		} else {
+			t.root = newInternalNode[K](cap(n.children))
+		}
+		t.root.keys = t.root.keys[:1]
+		t.root.keys[0] = key2
+		t.root.children = t.root.children[:2]
+		t.root.children[0] = n
+		t.root.children[1] = n2
+	}
+	t.size++
+}
+
+func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
+	val, ok = t.root.delete(key)
+	if ok {
+		if t.root.isInternal() && len(t.root.children) == 1 {
+			t.root = t.root.children[0]
+		}
+		t.size--
+	}
+	return
+}
+
+type node[K Key] struct {
+	keys     []K
+	children []*node[K]
+	values   []any
+	left     *node[K]
+	right    *node[K]
+	bmin     int
+}
+
+func newInternalNode[K Key](size int) *node[K] {
+	return &node[K]{
+		keys:     make([]K, 0, size-1),
+		children: make([]*node[K], 0, size),
+		bmin:     int(math.Ceil(float64(size) / 2)),
+	}
+}
+
+func newLeafNode[K Key](size int) *node[K] {
+	return &node[K]{
+		keys:   make([]K, 0, size),
+		values: make([]any, 0, size),
+		bmin:   int(math.Ceil(float64(size) / 2)),
+	}
+}
+
+func (n *node[K]) isInternal() bool {
+	return n.children != nil
+}
+
+func (n *node[K]) isLeaf() bool {
+	return n.values != nil
+}
+
+func (n *node[K]) insert(key K, val any) (key2 K, n2 *node[K]) {
+	if n.isLeaf() {
+		return n.insertToLeaf(key, val)
+	}
+	for i, c := range n.children {
+		if i == len(n.keys) || key < n.keys[i] {
+			key2, n2 = c.insert(key, val)
+			break
+		}
+	}
+	if n2 != nil {
+		return n.insertToInternal(key2, n2)
+	}
+	return
+}
+
+func (n *node[K]) insertToLeaf(key K, val any) (key2 K, n2 *node[K]) {
+	var pos int
+	for i, k := range n.keys {
+		if k > key {
+			break
+		}
+		if k == key {
+			n.values[i] = val
+			return
+		}
+		if k < key {
+			pos = i + 1
+			continue
+		}
+	}
+	if len(n.keys) < cap(n.keys) {
+		n.keys = n.keys[:len(n.keys)+1]
+		n.values = n.values[:len(n.values)+1]
+		copy(n.keys[pos+1:], n.keys[pos:len(n.keys)-1])
+		copy(n.values[pos+1:], n.values[pos:len(n.values)-1])
+		n.keys[pos] = key
+		n.values[pos] = val
+		return
+	}
+	n2 = newLeafNode[K](cap(n.keys))
+	n2.right = n.right
+	if n.right != nil {
+		n.right.left = n2
+	}
+	n.right = n2
+	n2.left = n
+	n2.keys = n2.keys[:cap(n.keys)+1-n.bmin]
+	n2.values = n2.values[:cap(n.values)+1-n.bmin]
+	if pos < n.bmin {
+		copy(n2.keys, n.keys[n.bmin-1:])
+		copy(n2.values, n.values[n.bmin-1:])
+		n.keys = n.keys[:n.bmin]
+		n.values = n.values[:n.bmin]
+		copy(n.keys[pos+1:], n.keys[pos:n.bmin-1])
+		copy(n.values[pos+1:], n.values[pos:n.bmin-1])
+		n.keys[pos] = key
+		n.values[pos] = val
+	} else {
+		pos2 := pos - n.bmin
+		copy(n2.keys, n.keys[n.bmin:pos])
+		copy(n2.values, n.values[n.bmin:pos])
+		n2.keys[pos2] = key
+		n2.values[pos2] = val
+		copy(n2.keys[pos2+1:], n.keys[pos:])
+		copy(n2.values[pos2+1:], n.values[pos:])
+		n.keys = n.keys[:n.bmin]
+		n.values = n.values[:n.bmin]
+	}
+	trimValueSlice(n.values)
+	return n2.keys[0], n2
+}
+
+func (n *node[K]) insertToInternal(key K, child *node[K]) (key2 K, n2 *node[K]) {
+	var pos int
+	for i, k := range n.keys {
+		if k < key {
+			pos = i + 1
+			continue
+		}
+		break
+	}
+	cpos := pos + 1
+	if len(n.children) < cap(n.children) {
+		n.keys = n.keys[:len(n.keys)+1]
+		n.children = n.children[:len(n.children)+1]
+		copy(n.keys[pos+1:], n.keys[pos:len(n.keys)-1])
+		copy(n.children[cpos+1:], n.children[cpos:len(n.children)-1])
+		n.keys[pos] = key
+		n.children[cpos] = child
+		return
+	}
+	n2 = newInternalNode[K](cap(n.children))
+	n2.right = n.right
+	if n.right != nil {
+		n.right.left = n2
+	}
+	n.right = n2
+	n2.left = n
+	n2.keys = n2.keys[:cap(n.keys)+1-n.bmin]
+	n2.children = n2.children[:cap(n.children)+1-n.bmin]
+	if pos < n.bmin-1 {
+		key2 = n.keys[n.bmin-2]
+		copy(n2.keys, n.keys[n.bmin-1:])
+		copy(n2.children, n.children[n.bmin-1:])
+		n.keys = n.keys[:n.bmin-1]
+		n.children = n.children[:n.bmin]
+		copy(n.keys[pos+1:], n.keys[pos:n.bmin-2])
+		copy(n.children[cpos+1:], n.children[cpos:n.bmin-1])
+		n.keys[pos] = key
+		n.children[cpos] = child
+	} else if pos == n.bmin-1 {
+		key2 = key
+		copy(n2.keys, n.keys[n.bmin-1:])
+		copy(n2.children[1:], n.children[n.bmin:])
+		n2.children[0] = child
+		n.keys = n.keys[:n.bmin-1]
+		n.children = n.children[:n.bmin]
+	} else { // pos > n.bmin-1
+		key2 = n.keys[n.bmin-1]
+		pos2, cpos2 := pos-n.bmin, cpos-n.bmin
+		copy(n2.keys, n.keys[n.bmin:pos])
+		copy(n2.children, n.children[n.bmin:cpos])
+		n2.keys[pos2] = key
+		n2.children[cpos2] = child
+		copy(n2.keys[pos2+1:], n.keys[pos:])
+		copy(n2.children[cpos2+1:], n.children[cpos:])
+		n.keys = n.keys[:n.bmin-1]
+		n.children = n.children[:n.bmin]
+	}
+	trimNodeSlice(n.children)
+	return
+}
+
+func (n *node[K]) delete(key K) (val any, ok bool) {
+	if n.isLeaf() {
+		return n.deleteFromLeaf(key)
+	}
+	var i int
+	var c *node[K]
+	for i, c = range n.children {
+		if i == len(n.keys) || key < n.keys[i] {
+			val, ok = c.delete(key)
+			break
+		}
+	}
+	if ok {
+		if c.isLeaf() {
+			if len(c.values) < n.bmin {
+				n.balanceLeaf(i)
+			}
+		} else {
+			if len(c.children) < n.bmin {
+				n.balanceInternal(i)
+			}
+		}
+	}
+	return
+}
+
+func (n *node[K]) deleteFromLeaf(key K) (val any, ok bool) {
+	for i, k := range n.keys {
+		if k == key {
+			val = n.values[i]
+			ok = true
+			copy(n.keys[i:len(n.keys)-1], n.keys[i+1:len(n.keys)])
+			copy(n.values[i:len(n.values)-1], n.values[i+1:len(n.values)])
+			n.keys = n.keys[:len(n.keys)-1]
+			n.values[len(n.values)-1] = nil
+			n.values = n.values[:len(n.values)-1]
+			return
+		}
+	}
+	return
+}
+
+func (n *node[K]) balanceLeaf(i int) {
+	c := n.children[i]
+	if i != 0 && len(n.children[i-1].values) > n.bmin {
+		n.keys[i-1] = c.takeFromLeftSiblingLeaf(n.children[i-1])
+		return
+	}
+	if i != len(n.children)-1 && len(n.children[i+1].values) > n.bmin {
+		n.keys[i] = c.takeFromRightSiblingLeaf(n.children[i+1])
+		return
+	}
+	if i != 0 && (i == len(n.children)-1 || len(n.children[i-1].values) < len(n.children[i+1].values)) {
+		mergeLeafs(n.children[i-1], c)
+		n.deleteChild(i)
+	} else {
+		mergeLeafs(c, n.children[i+1])
+		n.deleteChild(i + 1)
+	}
+}
+
+func (n *node[K]) takeFromLeftSiblingLeaf(n2 *node[K]) K {
+	n.keys = n.keys[:len(n.keys)+1]
+	copy(n.keys[1:], n.keys[:len(n.keys)-1])
+	n.keys[0] = n2.keys[len(n2.keys)-1]
+	n2.keys = n2.keys[:len(n2.keys)-1]
+	n.values = n.values[:len(n.values)+1]
+	copy(n.values[1:], n.values[:len(n.values)-1])
+	n.values[0] = n2.values[len(n2.values)-1]
+	n2.values[len(n2.values)-1] = nil
+	n2.values = n2.values[:len(n2.values)-1]
+	return n.keys[0]
+}
+
+func (n *node[K]) takeFromRightSiblingLeaf(n2 *node[K]) K {
+	n.keys = n.keys[:len(n.keys)+1]
+	n.keys[len(n.keys)-1] = n2.keys[0]
+	copy(n2.keys[:len(n2.keys)-1], n2.keys[1:len(n2.keys)])
+	n2.keys = n2.keys[:len(n2.keys)-1]
+	n.values = n.values[:len(n.values)+1]
+	n.values[len(n.values)-1] = n2.values[0]
+	copy(n2.values[:len(n2.values)-1], n2.values[1:len(n2.values)])
+	n2.values[len(n2.values)-1] = nil
+	n2.values = n2.values[:len(n2.values)-1]
+	return n2.keys[0]
+}
+
+func (n *node[K]) balanceInternal(i int) {
+	c := n.children[i]
+	if i != 0 && len(n.children[i-1].children) > n.bmin {
+		n.keys[i-1] = c.takeFromLeftSiblingInternal(n.children[i-1], n.keys[i-1])
+		return
+	}
+	if i != len(n.children)-1 && len(n.children[i+1].children) > n.bmin {
+		n.keys[i] = c.takeFromRightSiblingInternal(n.children[i+1], n.keys[i])
+		return
+	}
+	if i != 0 && (i == len(n.children)-1 || len(n.children[i-1].children) < len(n.children[i+1].children)) {
+		mergeInternal(n.children[i-1], c, n.keys[i-1])
+		n.deleteChild(i)
+	} else {
+		mergeInternal(c, n.children[i+1], n.keys[i])
+		n.deleteChild(i + 1)
+	}
+}
+
+func (n *node[K]) takeFromLeftSiblingInternal(n2 *node[K], key K) K {
+	n.keys = n.keys[:len(n.keys)+1]
+	copy(n.keys[1:], n.keys[:len(n.keys)-1])
+	mkey := n2.keys[len(n2.keys)-1]
+	n.keys[0] = key
+	n2.keys = n2.keys[:len(n2.keys)-1]
+	n.children = n.children[:len(n.children)+1]
+	copy(n.children[1:], n.children[:len(n.children)-1])
+	n.children[0] = n2.children[len(n2.children)-1]
+	n2.children[len(n2.children)-1] = nil
+	n2.children = n2.children[:len(n2.children)-1]
+	return mkey
+}
+
+func (n *node[K]) takeFromRightSiblingInternal(n2 *node[K], key K) K {
+	n.keys = n.keys[:len(n.keys)+1]
+	n.keys[len(n.keys)-1] = key
+	mkey := n2.keys[0]
+	copy(n2.keys[:len(n2.keys)-1], n2.keys[1:len(n2.keys)])
+	n2.keys = n2.keys[:len(n2.keys)-1]
+	n.children = n.children[:len(n.children)+1]
+	n.children[len(n.children)-1] = n2.children[0]
+	copy(n2.children[:len(n2.children)-1], n2.children[1:len(n2.children)])
+	n2.children[len(n2.children)-1] = nil
+	n2.children = n2.children[:len(n2.children)-1]
+	return mkey
+}
+
+func (n *node[K]) deleteChild(i int) {
+	copy(n.keys[i-1:len(n.keys)-1], n.keys[i:len(n.keys)])
+	n.keys = n.keys[:len(n.keys)-1]
+	copy(n.children[i:len(n.children)-1], n.children[i+1:len(n.children)])
+	n.children[len(n.children)-1] = nil
+	n.children = n.children[:len(n.children)-1]
+}
+
+func mergeLeafs[K Key](l, r *node[K]) {
+	l.right = r.right
+	if r.right != nil {
+		r.right.left = l
+	}
+	llen, rlen := len(l.keys), len(r.keys)
+	l.keys = l.keys[:llen+rlen]
+	copy(l.keys[llen:], r.keys)
+	l.values = l.values[:llen+rlen]
+	copy(l.values[llen:], r.values)
+}
+
+func mergeInternal[K Key](l, r *node[K], key K) {
+	l.right = r.right
+	if r.right != nil {
+		r.right.left = l
+	}
+	nlkeys, nlch := len(l.keys), len(l.children)
+	l.keys = l.keys[:nlkeys+len(r.keys)+1]
+	l.keys[nlkeys] = key
+	copy(l.keys[nlkeys+1:], r.keys)
+	l.children = l.children[:len(l.keys)+1]
+	copy(l.children[nlch:], r.children)
+}
+
+func trimNodeSlice[K Key](s []*node[K]) {
+	s = s[len(s):cap(s)]
+	if len(s) == 0 {
+		return
+	}
+	s[0] = nil
+	for i := 1; i < len(s); i *= 2 {
+		copy(s[i:], s[:i])
+	}
+}
+
+func trimValueSlice(s []any) {
+	s = s[len(s):cap(s)]
+	if len(s) == 0 {
+		return
+	}
+	s[0] = nil
+	for i := 1; i < len(s); i *= 2 {
+		copy(s[i:], s[:i])
+	}
+}
