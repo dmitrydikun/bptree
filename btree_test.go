@@ -18,8 +18,19 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
+)
+
+const (
+	bmax               = 3
+	numKeys            = 1000
+	numRangeTestKeys   = 30
+	numExtraKeys       = 10
+	leakTestNumKeys    = 1000000
+	leakTestIterations = 100
+	leakTestValueSize  = 7000
 )
 
 func fail[K Key](T *testing.T, t *BPTree[K], args ...any) {
@@ -193,18 +204,30 @@ func genKeys(n int) []int {
 	return keys
 }
 
-func shuffleKeys(keys []int) {
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
+func genExtraKeys(n, ne int) ([]int, []*int) {
+	keys := make([]int, n)
+	extra := make([]*int, n+ne)
+	j := 0
+	for i := 1; i < len(extra); i++ {
+		e := i
+		extra[i] = &e
+		if i >= ne/2 && j < len(keys) {
+			keys[j] = i
+			j++
+		}
+	}
+	extra[0] = nil
+	shuffleKeys(keys)
+	return keys, extra
 }
 
-const (
-	bmax               = 3
-	numKeys            = 1000
-	leakTestNumKeys    = 1000000
-	leakTestIterations = 100
-	leakTestValueSize  = 7000
-)
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func shuffleKeys(keys []int) {
+	rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
+}
 
 func validateInsert[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 	if err := validateTree(t); err != nil {
@@ -282,6 +305,80 @@ func TestDelete(T *testing.T) {
 		fail(T, t, "tree is not empty")
 	}
 	fmt.Println()
+}
+
+func TestRange(T *testing.T) {
+	t, err := NewBPTree[int](bmax)
+	if err != nil {
+		T.Fatal(err)
+	}
+	keys, extraKeys := genExtraKeys(numRangeTestKeys, numExtraKeys)
+	fmt.Println("inserting...")
+	for _, k := range keys {
+		t.Insert(k, valueForKey(k))
+	}
+	sort.Ints(keys)
+	fmt.Println(keys)
+	for i, k := range extraKeys {
+		if i != 0 {
+			fmt.Print(", ")
+		}
+		if k == nil {
+			fmt.Print("nil")
+		} else {
+			fmt.Print(*k)
+		}
+	}
+	fmt.Println()
+	for i, from := range extraKeys {
+		for j, to := range extraKeys {
+			treeRange := t.Range(from, to)
+			var keysRange []int
+			keysFrom := i - numExtraKeys/2
+			if from == nil || keysFrom < 0 {
+				keysFrom = 0
+			}
+			keysTo := j - numExtraKeys/2
+			if to == nil || keysTo > len(keys) {
+				keysTo = len(keys)
+			}
+			if keysFrom <= keysTo && keysFrom < len(keys) && keysTo >= 0 {
+				keysRange = keys[keysFrom:keysTo]
+			}
+			if len(keysRange) != len(treeRange) {
+				T.Fatalf("invalid len(range): len[%v:%v](%v) != len[%v:%v](%v)", i, j, len(treeRange), keysFrom, keysTo, len(keysRange))
+			}
+			for i, key := range keysRange {
+				if key != treeRange[i].Key {
+					T.Fatalf("treeRange[i].Key != key")
+				}
+			}
+			var printFrom, printTo string
+			if from == nil {
+				printFrom = "nil"
+			} else {
+				printFrom = fmt.Sprint(*from)
+			}
+			if to == nil {
+				printTo = "nil"
+			} else {
+				printTo = fmt.Sprint(*to)
+			}
+			fmt.Printf("Range(%s,%s) = ", printFrom, printTo)
+			if treeRange == nil {
+				fmt.Println("nil")
+			} else {
+				fmt.Print("[")
+				for i, kv := range treeRange {
+					if i != 0 {
+						fmt.Print(", ")
+					}
+					fmt.Print(kv.Key)
+				}
+				fmt.Println("]")
+			}
+		}
+	}
 }
 
 func printMemStats(msg string, old *runtime.MemStats) *runtime.MemStats {

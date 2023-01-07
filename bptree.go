@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package bptree implements B+ tree without support for duplicate keys.
+// Types and methods in this package are not thread-safe.
+
 package bptree
 
 import (
@@ -22,6 +23,11 @@ import (
 
 type Key interface {
 	int | uint | int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | uint64 | string
+}
+
+type KeyValue[K Key] struct {
+	Key   K
+	Value any
 }
 
 type BPTree[K Key] struct {
@@ -94,6 +100,39 @@ func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
 		t.size--
 	}
 	return
+}
+
+// Range returns a slice of key-value pairs from interval [*from; *to). Nil given as a parameter will
+// be interpreted as begin or end whole tree key diapason. If there are no keys found, returns nil.
+func (t *BPTree[K]) Range(from *K, to *K) []KeyValue[K] {
+	if from != nil && to != nil && *from >= *to {
+		return nil
+	}
+	n := t.root
+NodesLoop:
+	for n.isInternal() {
+		for i, c := range n.children {
+			if from == nil || i == len(n.keys) || *from < n.keys[i] {
+				n = c
+				continue NodesLoop
+			}
+		}
+	}
+	var kv []KeyValue[K]
+LeafsLoop:
+	for n != nil {
+		for i, k := range n.keys {
+			if from != nil && k < *from {
+				continue
+			}
+			if to != nil && k >= *to {
+				break LeafsLoop
+			}
+			kv = append(kv, KeyValue[K]{Key: k, Value: n.values[i]})
+		}
+		n = n.right
+	}
+	return kv
 }
 
 type node[K Key] struct {
