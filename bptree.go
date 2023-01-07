@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package bptree implements B+ tree without support for duplicate keys.
 package bptree
 
 import (
@@ -28,6 +29,9 @@ type BPTree[K Key] struct {
 	size int
 }
 
+// NewBPTree returns a new BPTree. Order measures the capacity of nodes, i.e. maximum allowed
+// number of direct child nodes for internal nodes, and maximum key-value pairs for leaf nodes.
+// Order must be greater or equal 3, otherwise NewBPTree returns error.
 func NewBPTree[K Key](order int) (*BPTree[K], error) {
 	if order < 3 {
 		return nil, errors.New("BPTree order too small")
@@ -37,10 +41,12 @@ func NewBPTree[K Key](order int) (*BPTree[K], error) {
 	}, nil
 }
 
+// Size returns a number of key-value pairs currently stored in a tree.
 func (t *BPTree[K]) Size() int {
 	return t.size
 }
 
+// Find returns a (value, true) for a given key, or (nil, false) if not found.
 func (t *BPTree[K]) Find(key K) (any, bool) {
 	n := t.root
 NodesLoop:
@@ -60,6 +66,7 @@ NodesLoop:
 	return nil, false
 }
 
+// Insert puts a key-value pair to the tree. If given key is present in tree, it's value will be replaced.
 func (t *BPTree[K]) Insert(key K, val any) {
 	n := t.root
 	if key2, n2 := n.insert(key, val); n2 != nil {
@@ -77,6 +84,7 @@ func (t *BPTree[K]) Insert(key K, val any) {
 	t.size++
 }
 
+// Delete removes a key-value pair and returns it's (value, true) if success, or (nil, false) if not found.
 func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
 	val, ok = t.root.delete(key)
 	if ok {

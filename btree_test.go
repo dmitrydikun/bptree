@@ -199,12 +199,11 @@ func shuffleKeys(keys []int) {
 }
 
 const (
-	bmax                 = 3
-	numKeys              = 1000
-	leakTestNumKeys      = 1000000
-	leakTestNumFixedKeys = leakTestNumKeys / 20
-	leakTestIterations   = 10
-	leakTestValueSize    = 7000
+	bmax               = 3
+	numKeys            = 1000
+	leakTestNumKeys    = 1000000
+	leakTestIterations = 100
+	leakTestValueSize  = 7000
 )
 
 func validateInsert[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
@@ -316,30 +315,20 @@ func TestMemoryLeak(T *testing.T) {
 	if err != nil {
 		T.Fatal(err)
 	}
-	keys := genKeys(leakTestNumKeys)
-	ms := printMemStats("before insert", nil)
-	fmt.Println("inserting...")
-	for _, k := range keys {
-		t.Insert(k, leakTestValueForKey(k))
-	}
-	printMemStats("after insert", ms)
+
+	ms := printMemStats("start", nil)
 
 	for i := 0; i < leakTestIterations; i++ {
-		shuffleKeys(keys)
 		fmt.Println("iteration", i)
-		keys := keys[leakTestNumFixedKeys:]
-		for i, k := range keys {
-			if i == len(keys)/2 {
-				printMemStats("after half delete", ms)
-			}
-			t.Delete(k)
-		}
-		printMemStats("after delete", ms)
-		shuffleKeys(keys)
+		keys := genKeys(leakTestNumKeys)
 		for _, k := range keys {
 			t.Insert(k, leakTestValueForKey(k))
 		}
-		printMemStats("after reinsert", ms)
+		shuffleKeys(keys)
+		for _, k := range keys {
+			t.Delete(k)
+		}
+		runtime.GC()
 	}
 	printMemStats("all deleted", ms)
 }
