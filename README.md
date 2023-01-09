@@ -8,8 +8,8 @@ Supported operations:
 - Insert
 - Find
 - Delete (Eject)
+- Iterating
 - Range
-- Size
 
 TODO:
 - Duplicated keys

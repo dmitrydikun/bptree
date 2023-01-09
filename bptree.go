@@ -30,6 +30,10 @@ type KeyValue[K Key] struct {
 	Value any
 }
 
+type Iterator[K Key] interface {
+	Next() (KeyValue[K], bool)
+}
+
 type BPTree[K Key] struct {
 	root *node[K]
 	size int
@@ -102,11 +106,40 @@ func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
 	return
 }
 
-// Range returns a slice of key-value pairs from interval [*from; *to). Nil given as a parameter will
-// be interpreted as begin or end whole tree key diapason. If there are no keys found, returns nil.
-func (t *BPTree[K]) Range(from *K, to *K) []KeyValue[K] {
+type iterator[K Key] struct {
+	from *K
+	to   *K
+	n    *node[K]
+	i    int
+}
+
+func (i *iterator[K]) Next() (KeyValue[K], bool) {
+SEARCH:
+	for i.n != nil {
+		for ; i.i < len(i.n.keys); i.i++ {
+			k := i.n.keys[i.i]
+			if i.from != nil && k < *i.from {
+				continue
+			}
+			if i.to != nil && k >= *i.to {
+				i.n = nil
+				break SEARCH
+			}
+			kv := KeyValue[K]{Key: i.n.keys[i.i], Value: i.n.values[i.i]}
+			i.i++
+			return kv, true
+		}
+		i.n = i.n.right
+		i.i = 0
+	}
+	return KeyValue[K]{}, false
+}
+
+// Iterator returns an Iterator for key-value pairs from interval [*from; *to). Nil given as a parameter will
+// be interpreted as begin or end whole tree key diapason.
+func (t *BPTree[K]) Iterator(from *K, to *K) Iterator[K] {
 	if from != nil && to != nil && *from >= *to {
-		return nil
+		return &iterator[K]{}
 	}
 	n := t.root
 NodesLoop:
@@ -118,21 +151,27 @@ NodesLoop:
 			}
 		}
 	}
-	var kv []KeyValue[K]
-LeafsLoop:
-	for n != nil {
-		for i, k := range n.keys {
-			if from != nil && k < *from {
-				continue
-			}
-			if to != nil && k >= *to {
-				break LeafsLoop
-			}
-			kv = append(kv, KeyValue[K]{Key: k, Value: n.values[i]})
-		}
-		n = n.right
+	return &iterator[K]{
+		from: from,
+		to:   to,
+		n:    n,
 	}
-	return kv
+}
+
+// Range returns a slice of key-value pairs from interval [*from; *to). Nil given as a parameter will
+// be interpreted as begin or end whole tree key diapason. If there are no keys found, returns nil.
+func (t *BPTree[K]) Range(from *K, to *K) []KeyValue[K] {
+	i := t.Iterator(from, to)
+	var result []KeyValue[K]
+	for kv, ok := i.Next(); ok; kv, ok = i.Next() {
+		result = append(result, kv)
+	}
+	return result
+}
+
+// Entries returns a slice of all key-value pairs stored in tree. If tree is empty, returns nil.
+func (t *BPTree[K]) Entries() []KeyValue[K] {
+	return t.Range(nil, nil)
 }
 
 type node[K Key] struct {
