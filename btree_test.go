@@ -307,6 +307,44 @@ func TestDelete(T *testing.T) {
 	fmt.Println()
 }
 
+func TestFirstLast(T *testing.T) {
+	t, err := NewBPTree[int](bmax)
+	if err != nil {
+		T.Fatal(err)
+	}
+	keys := genKeys(numKeys)
+	var min, max = numKeys, -1
+	for i, k := range keys {
+		if i == 0 {
+			if _, ok := t.First(); ok {
+				fail(T, t, "first found when tree is empty")
+			}
+			if _, ok := t.Last(); ok {
+				fail(T, t, "last found when tree is empty")
+			}
+		}
+		t.Insert(k, valueForKey(k))
+		if k < min {
+			min = k
+		}
+		if k > max {
+			max = k
+		}
+		f, ok := t.First()
+		if !ok {
+			fail(T, t, "first not found")
+		} else if f.Key != min {
+			failf(T, t, "first.Key(%d) != min(%d)", f.Key, min)
+		}
+		l, ok := t.Last()
+		if !ok {
+			fail(T, t, "last not found")
+		} else if l.Key != max {
+			failf(T, t, "last.Key(%d) != max(%d)", f.Key, max)
+		}
+	}
+}
+
 func TestRange(T *testing.T) {
 	t, err := NewBPTree[int](bmax)
 	if err != nil {

@@ -174,6 +174,30 @@ func (t *BPTree[K]) Entries() []KeyValue[K] {
 	return t.Range(nil, nil)
 }
 
+// First returns (key-value, true) for the minimal key in tree, or (zero, false) if tree is empty.
+func (t *BPTree[K]) First() (KeyValue[K], bool) {
+	if t.size == 0 {
+		return KeyValue[K]{}, false
+	}
+	n := t.root
+	for n.isInternal() {
+		n = n.children[0]
+	}
+	return KeyValue[K]{Key: n.keys[0], Value: n.values[0]}, true
+}
+
+// Last returns (key-value, true) for the maximal key in tree, or (zero, false) if tree is empty.
+func (t *BPTree[K]) Last() (KeyValue[K], bool) {
+	if t.size == 0 {
+		return KeyValue[K]{}, false
+	}
+	n := t.root
+	for n.isInternal() {
+		n = n.children[len(n.children)-1]
+	}
+	return KeyValue[K]{Key: n.keys[len(n.keys)-1], Value: n.values[len(n.values)-1]}, true
+}
+
 type node[K Key] struct {
 	keys     []K
 	children []*node[K]
