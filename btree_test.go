@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	bmax               = 3
+	bmax               = 64
 	numKeys            = 1000
+	benchNumKeys       = 1000000
 	numRangeTestKeys   = 30
 	numExtraKeys       = 10
 	leakTestNumKeys    = 1000000
@@ -512,4 +513,54 @@ func TestDebug(T *testing.T) {
 	}
 	validateDelete(T, t, keys, len(keys)-1)
 	fmt.Println()
+}
+
+func BenchmarkBPTreeInsert(b *testing.B) {
+	t, err := NewBPTree[int](bmax)
+	if err != nil {
+		b.Fatal(err)
+	}
+	keys := genKeys(benchNumKeys)
+	b.ResetTimer()
+	for _, k := range keys {
+		t.Insert(k, valueForKey(k))
+	}
+}
+
+func BenchmarkMapInsert(b *testing.B) {
+	m := make(map[int]any)
+	keys := genKeys(benchNumKeys)
+	b.ResetTimer()
+	for _, k := range keys {
+		m[k] = valueForKey(k)
+	}
+}
+
+func BenchmarkBPTreeFind(b *testing.B) {
+	t, err := NewBPTree[int](bmax)
+	if err != nil {
+		b.Fatal(err)
+	}
+	keys := genKeys(benchNumKeys)
+	for _, k := range keys {
+		t.Insert(k, valueForKey(k))
+	}
+	shuffleKeys(keys)
+	b.ResetTimer()
+	for _, k := range keys {
+		_, _ = t.Find(k)
+	}
+}
+
+func BenchmarkMapFind(b *testing.B) {
+	m := make(map[int]any)
+	keys := genKeys(benchNumKeys)
+	for _, k := range keys {
+		m[k] = valueForKey(k)
+	}
+	shuffleKeys(keys)
+	b.ResetTimer()
+	for _, k := range keys {
+		_, _ = m[k]
+	}
 }
