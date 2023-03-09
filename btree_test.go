@@ -248,10 +248,7 @@ func validateInsert[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 }
 
 func TestInsert(T *testing.T) {
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
+	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
 	fmt.Println("inserting...")
 	for i, k := range keys {
@@ -275,10 +272,7 @@ func validateDelete[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 }
 
 func TestDelete(T *testing.T) {
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
+	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
 	fmt.Println("inserting...")
 	for i, k := range keys {
@@ -310,10 +304,7 @@ func TestDelete(T *testing.T) {
 }
 
 func TestFirstLast(T *testing.T) {
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
+	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
 	var min, max = numKeys, -1
 	for i, k := range keys {
@@ -348,10 +339,7 @@ func TestFirstLast(T *testing.T) {
 }
 
 func TestRange(T *testing.T) {
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
+	t := NewBPTree[int](bmax)
 	keys, extraKeys := genExtraKeys(numRangeTestKeys, numExtraKeys)
 	fmt.Println("inserting...")
 	for _, k := range keys {
@@ -448,13 +436,8 @@ func printMemStats(msg string, old *runtime.MemStats) *runtime.MemStats {
 }
 
 func TestMemoryLeak(T *testing.T) {
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
-
+	t := NewBPTree[int](bmax)
 	ms := printMemStats("start", nil)
-
 	for i := 0; i < leakTestIterations; i++ {
 		fmt.Println("iteration", i)
 		keys := genKeys(leakTestNumKeys)
@@ -473,10 +456,7 @@ func TestMemoryLeak(T *testing.T) {
 func TestDebug(T *testing.T) {
 	var insertOrder = []int{21, 3, 26, 7, 29, 5, 2, 28, 4, 27, 9, 23, 15, 12, 1, 14, 25, 24, 6, 13, 17, 8, 11, 10, 19, 18, 22, 16, 0, 20}
 	var deleteOrder = []int{18, 15, 19, 7, 23, 13, 0, 26}
-	t, err := NewBPTree[int](bmax)
-	if err != nil {
-		T.Fatal(err)
-	}
+	t := NewBPTree[int](bmax)
 	keys := insertOrder
 	fmt.Println("inserting...")
 	for i, k := range keys {
@@ -517,10 +497,7 @@ func TestDebug(T *testing.T) {
 }
 
 func BenchmarkBPTreeInsert(b *testing.B) {
-	t, err := NewBPTree[int](benchBmax)
-	if err != nil {
-		b.Fatal(err)
-	}
+	t := NewBPTree[int](benchBmax)
 	keys := genKeys(benchNumKeys)
 	b.ResetTimer()
 	for _, k := range keys {
@@ -547,10 +524,7 @@ func BenchmarkAllocatedMapInsert(b *testing.B) {
 }
 
 func BenchmarkBPTreeFind(b *testing.B) {
-	t, err := NewBPTree[int](benchBmax)
-	if err != nil {
-		b.Fatal(err)
-	}
+	t := NewBPTree[int](benchBmax)
 	keys := genKeys(benchNumKeys)
 	for _, k := range keys {
 		t.Insert(k, valueForKey(k))

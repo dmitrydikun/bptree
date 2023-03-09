@@ -17,7 +17,6 @@
 package bptree
 
 import (
-	"errors"
 	"math"
 )
 
@@ -34,6 +33,8 @@ type Iterator[K Key] interface {
 	Next() (KeyValue[K], bool)
 }
 
+const MinOrder = 3
+
 type BPTree[K Key] struct {
 	root *node[K]
 	size int
@@ -41,14 +42,14 @@ type BPTree[K Key] struct {
 
 // NewBPTree returns a new BPTree. Order measures the capacity of nodes, i.e. maximum allowed
 // number of direct child nodes for internal nodes, and maximum key-value pairs for leaf nodes.
-// Order must be greater or equal 3, otherwise NewBPTree returns error.
-func NewBPTree[K Key](order int) (*BPTree[K], error) {
-	if order < 3 {
-		return nil, errors.New("BPTree order too small")
+// Order should be greater or equal MinOrder, otherwise BPTree will be initialized with MinOrder.
+func NewBPTree[K Key](order int) *BPTree[K] {
+	if order < MinOrder {
+		order = MinOrder
 	}
 	return &BPTree[K]{
 		root: newLeafNode[K](order),
-	}, nil
+	}
 }
 
 // Size returns a number of key-value pairs currently stored in a tree.
