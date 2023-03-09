@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	bmax               = 64
+	bmax               = 32
 	numKeys            = 1000
+	benchBmax          = 128
 	benchNumKeys       = 1000000
 	numRangeTestKeys   = 30
 	numExtraKeys       = 10
@@ -516,7 +517,7 @@ func TestDebug(T *testing.T) {
 }
 
 func BenchmarkBPTreeInsert(b *testing.B) {
-	t, err := NewBPTree[int](bmax)
+	t, err := NewBPTree[int](benchBmax)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -536,8 +537,17 @@ func BenchmarkMapInsert(b *testing.B) {
 	}
 }
 
+func BenchmarkAllocatedMapInsert(b *testing.B) {
+	m := make(map[int]any, benchNumKeys)
+	keys := genKeys(benchNumKeys)
+	b.ResetTimer()
+	for _, k := range keys {
+		m[k] = valueForKey(k)
+	}
+}
+
 func BenchmarkBPTreeFind(b *testing.B) {
-	t, err := NewBPTree[int](bmax)
+	t, err := NewBPTree[int](benchBmax)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -564,3 +574,17 @@ func BenchmarkMapFind(b *testing.B) {
 		_, _ = m[k]
 	}
 }
+
+func BenchmarkAllocatedMapFind(b *testing.B) {
+	m := make(map[int]any, benchNumKeys)
+	keys := genKeys(benchNumKeys)
+	for _, k := range keys {
+		m[k] = valueForKey(k)
+	}
+	shuffleKeys(keys)
+	b.ResetTimer()
+	for _, k := range keys {
+		_, _ = m[k]
+	}
+}
+
