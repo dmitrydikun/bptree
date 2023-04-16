@@ -250,6 +250,9 @@ func validateInsert[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 func TestInsert(T *testing.T) {
 	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
+	keys = append(keys, keys...)
+	shuffleKeys(keys)
+	inserted := make(map[int]struct{})
 	fmt.Println("inserting...")
 	for i, k := range keys {
 		if i != 0 {
@@ -257,6 +260,10 @@ func TestInsert(T *testing.T) {
 		}
 		fmt.Print(k)
 		t.Insert(k, valueForKey(k))
+		inserted[k] = struct{}{}
+		if t.Size() != len(inserted) {
+			failf(T, t, "invalid size: %d, must be %d", t.Size(), len(inserted))
+		}
 		validateInsert(T, t, keys, i)
 	}
 	fmt.Println()
@@ -274,6 +281,9 @@ func validateDelete[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 func TestDelete(T *testing.T) {
 	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
+	keys = append(keys, keys...)
+	shuffleKeys(keys)
+	inserted := make(map[int]struct{})
 	fmt.Println("inserting...")
 	for i, k := range keys {
 		if i != 0 {
@@ -281,6 +291,10 @@ func TestDelete(T *testing.T) {
 		}
 		fmt.Print(k)
 		t.Insert(k, valueForKey(k))
+		inserted[k] = struct{}{}
+		if t.Size() != len(inserted) {
+			failf(T, t, "invalid size: %d, must be %d", t.Size(), len(inserted))
+		}
 	}
 	fmt.Println()
 	shuffleKeys(keys)
@@ -291,11 +305,17 @@ func TestDelete(T *testing.T) {
 		}
 		fmt.Print(k)
 		if v, ok := t.Delete(k); !ok {
-			failf(T, t, "deleting failed: %d", k)
+			if _, ok = inserted[k]; ok {
+				failf(T, t, "deleting failed: %d", k)
+			}
 		} else if v != valueForKey(k) {
 			failf(T, t, "deleted wrong value: %s, needed: %s", v.(string), valueForKey(k))
 		}
+		delete(inserted, k)
 		validateDelete(T, t, keys, i)
+		if t.Size() != len(inserted) {
+			failf(T, t, "invalid size: %d, must be %d", t.Size(), len(inserted))
+		}
 	}
 	if !isEmpty(t) {
 		fail(T, t, "tree is not empty")

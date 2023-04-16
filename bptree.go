@@ -80,7 +80,8 @@ NodesLoop:
 // Insert puts a key-value pair to the tree. If given key is present in tree, it's value will be replaced.
 func (t *BPTree[K]) Insert(key K, val any) {
 	n := t.root
-	if key2, n2 := n.insert(key, val); n2 != nil {
+	ok, key2, n2 := n.insert(key, val)
+	if n2 != nil {
 		if n.isLeaf() {
 			t.root = newInternalNode[K](cap(n.keys))
 		} else {
@@ -92,7 +93,9 @@ func (t *BPTree[K]) Insert(key K, val any) {
 		t.root.children[0] = n
 		t.root.children[1] = n2
 	}
-	t.size++
+	if ok {
+		t.size++
+	}
 }
 
 // Delete removes a key-value pair and returns it's (value, true) if success, or (nil, false) if not found.
@@ -232,23 +235,23 @@ func (n *node[K]) isLeaf() bool {
 	return n.values != nil
 }
 
-func (n *node[K]) insert(key K, val any) (key2 K, n2 *node[K]) {
+func (n *node[K]) insert(key K, val any) (ok bool, key2 K, n2 *node[K]) {
 	if n.isLeaf() {
 		return n.insertToLeaf(key, val)
 	}
 	for i, c := range n.children {
 		if i == len(n.keys) || key < n.keys[i] {
-			key2, n2 = c.insert(key, val)
+			ok, key2, n2 = c.insert(key, val)
 			break
 		}
 	}
 	if n2 != nil {
-		return n.insertToInternal(key2, n2)
+		key2, n2 = n.insertToInternal(key2, n2)
 	}
 	return
 }
 
-func (n *node[K]) insertToLeaf(key K, val any) (key2 K, n2 *node[K]) {
+func (n *node[K]) insertToLeaf(key K, val any) (ok bool, key2 K, n2 *node[K]) {
 	var pos int
 	for i, k := range n.keys {
 		if k > key {
@@ -256,7 +259,7 @@ func (n *node[K]) insertToLeaf(key K, val any) (key2 K, n2 *node[K]) {
 		}
 		if k == key {
 			n.values[i] = val
-			return
+			return false, key2, n2
 		}
 		if k < key {
 			pos = i + 1
@@ -270,7 +273,7 @@ func (n *node[K]) insertToLeaf(key K, val any) (key2 K, n2 *node[K]) {
 		copy(n.values[pos+1:], n.values[pos:len(n.values)-1])
 		n.keys[pos] = key
 		n.values[pos] = val
-		return
+		return true, key2, n2
 	}
 	n2 = newLeafNode[K](cap(n.keys))
 	n2.right = n.right
@@ -302,7 +305,7 @@ func (n *node[K]) insertToLeaf(key K, val any) (key2 K, n2 *node[K]) {
 		n.values = n.values[:n.bmin]
 	}
 	trimValueSlice(n.values)
-	return n2.keys[0], n2
+	return true, n2.keys[0], n2
 }
 
 func (n *node[K]) insertToInternal(key K, child *node[K]) (key2 K, n2 *node[K]) {
