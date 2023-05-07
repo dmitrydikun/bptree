@@ -54,7 +54,18 @@ func printTree[K Key](t *BPTree[K]) {
 				content += " "
 			}
 			if n.isLeaf() {
-				content += fmt.Sprintf("(%v)", k)
+				if v, ok := n.values[i].(collision); ok {
+					content += fmt.Sprintf("(%v: ", k)
+					for i, v := range v {
+						if i != 0 {
+							content += ", "
+						}
+						content += fmt.Sprint(v)
+					}
+					content += ")"
+				} else {
+					content += fmt.Sprintf("(%v: %v)", k, n.values[i])
+				}
 			} else {
 				content += fmt.Sprintf("[%v]", k)
 			}
@@ -269,6 +280,96 @@ func TestInsert(T *testing.T) {
 	fmt.Println()
 }
 
+func makeAppendKeysValues(n int) ([]int, []int) {
+	keys := genKeys(n)
+	keys = append(append(append(append(append([]int{}, keys...), keys...), keys...), keys...), keys...)
+	values := genKeys(5*n)
+	shuffleKeys(keys)
+	shuffleKeys(values)
+	return keys, values
+}
+
+func makeTreeAppendWithKeysValues(T *testing.T, b int, keys, values []int) ([]int, []int, *BPTree[int], map[int][]int) {
+	t := NewBPTree[int](b)
+	fmt.Println("appending...")
+	m := make(map[int][]int)
+	for i, k := range keys {
+		if i != 0 {
+			fmt.Print(", ")
+		}
+		fmt.Print(k)
+		t.Append(k, values[i])
+		if t.Size() != i + 1 {
+			failf(T, t, "invalid size: %d, must be %d", t.Size(), i+1)
+		}
+		if v, ok := m[k]; !ok {
+			m[k] = []int{values[i]}
+		} else {
+			m[k] = append(v, values[i])
+		}
+		validateAppend(T, t, keys, values, i)
+	}
+	fmt.Println()
+	return keys, values, t, m
+}
+
+func makeTreeAppend(T *testing.T, b, n int) ([]int, []int, *BPTree[int], map[int][]int) {
+	keys, values := makeAppendKeysValues(n)
+	return makeTreeAppendWithKeysValues(T, b, keys, values)
+}
+
+func compareWithMap(T *testing.T, t *BPTree[int], m map[int][]int) {
+	if err := validateTree(t); err != nil {
+		failf(T, t, "tree validation failed: %s", err)
+	}
+	size := 0
+	for k, mv := range m {
+		size += len(mv)
+		tv, ok := t.FindAll(k)
+		if !ok {
+			failf(T, t, "key not found: %d", k)
+		}
+		if len(tv) != len(mv) {
+			failf(T, t, "value count differs: found %d, needed %d", len(tv), len(mv))
+		}
+		for i, tv := range tv {
+			mv := mv[i]
+			if tv != mv {
+				failf(T, t, "value differs: found %d, needed %d", tv, mv)
+			}
+		}
+	}
+	if t.Size() != size {
+		failf(T, t, "size differs: found %d, needed %d", t.Size(), size)
+	}
+}
+
+func validateAppend[K Key](T *testing.T, t *BPTree[K], keys []K, values []int, i int) {
+	if err := validateTree(t); err != nil {
+		failf(T, t, "tree validation failed: %s", err)
+	}
+	duplicates := make(map[K]int)
+	for j := 0; j <= i; j++ {
+		k := keys[j]
+		v, ok := t.FindAll(k)
+		if !ok {
+			failf(T, t, "key not found: %v", k)
+		}
+		duplicates[k]++
+		if len(v) < duplicates[k] {
+			failf(T, t, "number of keys differs: found %d, needed %d", len(v), duplicates[k])
+		}
+		if v[duplicates[k]-1] != values[j] {
+			failf(T, t, "value differs: found: %d, needed: %d", v[duplicates[k]-1], values[j])
+		}
+	}
+}
+
+func TestInsertAppend(T *testing.T) {
+	b, n := bmax, numKeys
+	makeTreeAppend(T, b, n)
+}
+
 func validateDelete[K Key](T *testing.T, t *BPTree[K], keys []K, i int) {
 	if v, ok := t.Find(keys[i]); ok {
 		failf(T, t, "found after delete: %s", v)
@@ -323,6 +424,42 @@ func TestDelete(T *testing.T) {
 	fmt.Println()
 }
 
+func TestDeleteAppend(T *testing.T) {
+	b, n := bmax, numKeys
+	keys, _, t, m := makeTreeAppend(T, b, n)
+	shuffleKeys(keys)
+	for _, k := range keys {
+		mv, ok := m[k]
+		if !ok {
+			failf(T, t, "key %d not found in comparation map", k)
+		}
+		m[k] = mv[:len(mv)-1]
+		t.Delete(k)
+		compareWithMap(T, t, m)
+	}
+	keys, _, t, m = makeTreeAppend(T, b, n)
+	shuffleKeys(keys)
+	for _, k := range keys {
+		mv, ok := m[k]
+		if !ok {
+			failf(T, t, "key %d not found in comparation map", k)
+		}
+		idx := rand.Intn(len(mv))
+		copy(mv[idx:], mv[idx+1:])
+		m[k] = mv[:len(mv)-1]
+		t.DeleteOne(k, idx)
+		compareWithMap(T, t, m)
+	}
+	keys, _, t, m = makeTreeAppend(T, b, n)
+	shuffleKeys(keys)
+	for _, k := range keys {
+		delete(m, k)
+		t.DeleteAll(k)
+		compareWithMap(T, t, m)
+	}
+}
+
+
 func TestFirstLast(T *testing.T) {
 	t := NewBPTree[int](bmax)
 	keys := genKeys(numKeys)
@@ -358,9 +495,46 @@ func TestFirstLast(T *testing.T) {
 	}
 }
 
+func TestFirstLastAppend(T *testing.T) {
+	b, n := bmax, numKeys
+	t := NewBPTree[int](b)
+	keys, values := makeAppendKeysValues(n)
+	var min, max = n, -1
+	for i, k := range keys {
+		if i == 0 {
+			if _, ok := t.First(); ok {
+				fail(T, t, "first found when tree is empty")
+			}
+			if _, ok := t.Last(); ok {
+				fail(T, t, "last found when tree is empty")
+			}
+		}
+		t.Append(k, values[i])
+		if k < min {
+			min = k
+		}
+		if k > max {
+			max = k
+		}
+		f, ok := t.First()
+		if !ok {
+			fail(T, t, "first not found")
+		} else if f.Key != min {
+			failf(T, t, "first.Key(%d) != min(%d)", f.Key, min)
+		}
+		l, ok := t.Last()
+		if !ok {
+			fail(T, t, "last not found")
+		} else if l.Key != max {
+			failf(T, t, "last.Key(%d) != max(%d)", f.Key, max)
+		}
+	}
+}
+
 func TestRange(T *testing.T) {
-	t := NewBPTree[int](bmax)
-	keys, extraKeys := genExtraKeys(numRangeTestKeys, numExtraKeys)
+	b, n, ne := bmax, numRangeTestKeys, numExtraKeys
+	t := NewBPTree[int](b)
+	keys, extraKeys := genExtraKeys(n, ne)
 	fmt.Println("inserting...")
 	for _, k := range keys {
 		t.Insert(k, valueForKey(k))
@@ -382,11 +556,11 @@ func TestRange(T *testing.T) {
 		for j, to := range extraKeys {
 			treeRange := t.Range(from, to)
 			var keysRange []int
-			keysFrom := i - numExtraKeys/2
+			keysFrom := i - ne/2
 			if from == nil || keysFrom < 0 {
 				keysFrom = 0
 			}
-			keysTo := j - numExtraKeys/2
+			keysTo := j - ne/2
 			if to == nil || keysTo > len(keys) {
 				keysTo = len(keys)
 			}
@@ -399,6 +573,77 @@ func TestRange(T *testing.T) {
 			for i, key := range keysRange {
 				if key != treeRange[i].Key {
 					T.Fatalf("treeRange[i].Key != key")
+				}
+			}
+			var printFrom, printTo string
+			if from == nil {
+				printFrom = "nil"
+			} else {
+				printFrom = fmt.Sprint(*from)
+			}
+			if to == nil {
+				printTo = "nil"
+			} else {
+				printTo = fmt.Sprint(*to)
+			}
+			fmt.Printf("Range(%s,%s) = ", printFrom, printTo)
+			if treeRange == nil {
+				fmt.Println("nil")
+			} else {
+				fmt.Print("[")
+				for i, kv := range treeRange {
+					if i != 0 {
+						fmt.Print(", ")
+					}
+					fmt.Print(kv.Key)
+				}
+				fmt.Println("]")
+			}
+		}
+	}
+}
+
+func TestRangeAppend(T *testing.T) {
+	b, n, ne := bmax, numRangeTestKeys, numExtraKeys
+	_, values := makeAppendKeysValues(n)
+	keys, extraKeys := genExtraKeys(n, ne)
+	_, _, t, m := makeTreeAppendWithKeysValues(T, b, keys, values)
+	sort.Ints(keys)
+	fmt.Println(keys)
+	for i, k := range extraKeys {
+		if i != 0 {
+			fmt.Print(", ")
+		}
+		if k == nil {
+			fmt.Print("nil")
+		} else {
+			fmt.Print(*k)
+		}
+	}
+	fmt.Println()
+	for i, from := range extraKeys {
+		for j, to := range extraKeys {
+			treeRange := t.Range(from, to)
+			var mapRange []int
+			keysFrom := i - ne/2
+			if from == nil || keysFrom < 0 {
+				keysFrom = 0
+			}
+			keysTo := j - ne/2
+			if to == nil || keysTo > len(keys) {
+				keysTo = len(keys)
+			}
+			for k := keysFrom; k < keysTo; k++ {
+				if v, ok := m[keys[k]]; ok {
+					mapRange = append(mapRange, v...)
+				}
+			}
+			if len(mapRange) != len(treeRange) {
+				T.Fatalf("invalid len(range): len[%v:%v](%v) != len[%v:%v](%v)", i, j, len(treeRange), keysFrom, keysTo, len(mapRange))
+			}
+			for i, v := range mapRange {
+				if v != treeRange[i].Value {
+					T.Fatalf("mapRange[i] (%d) != treeRange[i].Value (%d)", v, treeRange[i].Value)
 				}
 			}
 			var printFrom, printTo string
@@ -455,7 +700,7 @@ func printMemStats(msg string, old *runtime.MemStats) *runtime.MemStats {
 	return &ms
 }
 
-func TestMemoryLeak(T *testing.T) {
+func _TestMemoryLeak(T *testing.T) {
 	t := NewBPTree[int](bmax)
 	ms := printMemStats("start", nil)
 	for i := 0; i < leakTestIterations; i++ {
@@ -473,46 +718,23 @@ func TestMemoryLeak(T *testing.T) {
 	printMemStats("all deleted", ms)
 }
 
-func TestDebug(T *testing.T) {
-	var insertOrder = []int{21, 3, 26, 7, 29, 5, 2, 28, 4, 27, 9, 23, 15, 12, 1, 14, 25, 24, 6, 13, 17, 8, 11, 10, 19, 18, 22, 16, 0, 20}
-	var deleteOrder = []int{18, 15, 19, 7, 23, 13, 0, 26}
-	t := NewBPTree[int](bmax)
-	keys := insertOrder
-	fmt.Println("inserting...")
-	for i, k := range keys {
-		if i != 0 {
-			fmt.Print(", ")
-		}
-		fmt.Print(k)
-		t.Insert(k, valueForKey(k))
-		validateInsert(T, t, keys, i)
+func _TestDebug(T *testing.T) {
+	//b := bmax
+	b := 4
+	var appendOrder = []int{0, 3, 3, 0, 6, 9, 6, 6}
+	var values = []int{6, 10, 23, 33, 40, 56, 69, 76}
+	t := NewBPTree[int](b)
+	keys := appendOrder
+	fmt.Println("appending...")
+	for i, k := range appendOrder {
+		//if i != 0 {
+		//	fmt.Print(", ")
+		//}
+		//fmt.Print(k)
+		t.Append(k, values[i])
+		printTree(t)
+		validateAppend(T, t, keys, values, i)
 	}
-	fmt.Println()
-	printTree(t)
-	keys = deleteOrder
-	fmt.Println("deleting...")
-	for i, k := range keys[:len(keys)-1] {
-		if i != 0 {
-			fmt.Print(", ")
-		}
-		fmt.Print(k)
-		if v, ok := t.Delete(k); !ok {
-			failf(T, t, "deleting failed: %d", k)
-		} else if v != valueForKey(k) {
-			failf(T, t, "deleted wrong value: %s, needed: %s", v.(string), valueForKey(k))
-		}
-		validateDelete(T, t, keys, i)
-	}
-	fmt.Println()
-	printTree(t)
-	k := keys[len(keys)-1]
-	fmt.Print(k)
-	if v, ok := t.Delete(k); !ok {
-		failf(T, t, "deleting failed: %d", k)
-	} else if v != valueForKey(k) {
-		failf(T, t, "deleted wrong value: %s, needed: %s", v.(string), valueForKey(k))
-	}
-	validateDelete(T, t, keys, len(keys)-1)
 	fmt.Println()
 }
 

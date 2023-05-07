@@ -29,6 +29,8 @@ type KeyValue[K Key] struct {
 	Value any
 }
 
+type collision []any
+
 type Iterator[K Key] interface {
 	Next() (KeyValue[K], bool)
 }
@@ -59,6 +61,27 @@ func (t *BPTree[K]) Size() int {
 
 // Find returns a (value, true) for a given key, or (nil, false) if not found.
 func (t *BPTree[K]) Find(key K) (any, bool) {
+	if v, ok := t.find(key); ok {
+		if v, ok := v.(collision); ok {
+			return v[0], true
+		}
+		return v, true
+	}
+	return nil, false
+}
+
+// FindAll returns a ([]value, true) for a given key, or (nil, false) if not found.
+func (t *BPTree[K]) FindAll(key K) ([]any, bool) {
+	if v, ok := t.find(key); ok {
+		if v, ok := v.(collision); ok {
+			return v, true
+		}
+		return []any{v}, true
+	}
+	return nil, false
+}
+
+func (t *BPTree[K]) find(key K) (any, bool) {
 	n := t.root
 NodesLoop:
 	for n.isInternal() {
@@ -79,8 +102,17 @@ NodesLoop:
 
 // Insert puts a key-value pair to the tree. If given key is present in tree, it's value will be replaced.
 func (t *BPTree[K]) Insert(key K, val any) {
+	t.insert(key, val, true)
+}
+
+// Append puts a key-value pair to the tree. If given key is present in tree, val will be appended to it's values.
+func (t *BPTree[K]) Append(key K, val any) {
+	t.insert(key, val, false)
+}
+
+func (t *BPTree[K]) insert(key K, val any, replace bool) {
 	n := t.root
-	ok, key2, n2 := n.insert(key, val)
+	ok, key2, n2 := n.insert(key, val, replace)
 	if n2 != nil {
 		if n.isLeaf() {
 			t.root = newInternalNode[K](cap(n.keys))
@@ -100,12 +132,33 @@ func (t *BPTree[K]) Insert(key K, val any) {
 
 // Delete removes a key-value pair and returns it's (value, true) if success, or (nil, false) if not found.
 func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
-	val, ok = t.root.delete(key)
+	return t.delete(key, false, -1)
+}
+
+func (t *BPTree[K]) DeleteOne(key K, idx int) (val any, ok bool) {
+	return t.delete(key, false, idx)
+}
+
+func (t *BPTree[K]) DeleteAll(key K) (vals []any, ok bool) {
+	if v, ok := t.delete(key, true, 0); ok {
+		return v.(collision), true
+	}
+	return nil, false
+}
+
+func (t *BPTree[K]) delete(key K, all bool, idx int) (val any, ok bool) {
+	val, ok = t.root.delete(key, all, idx)
 	if ok {
 		if t.root.isInternal() && len(t.root.children) == 1 {
 			t.root = t.root.children[0]
 		}
-		t.size--
+		if all {
+			c, _ := val.(collision)
+			t.size -= len(c)
+			return c, true
+		} else {
+			t.size--
+		}
 	}
 	return
 }
@@ -115,11 +168,22 @@ type iterator[K Key] struct {
 	to   *K
 	n    *node[K]
 	i    int
+	c    collision
+	ckey K
+	ci   int
 }
 
 func (i *iterator[K]) Next() (KeyValue[K], bool) {
 SEARCH:
 	for i.n != nil {
+		if i.c != nil {
+			if i.ci < len(i.c) {
+				kv := KeyValue[K]{Key: i.ckey, Value: i.c[i.ci]}
+				i.ci++
+				return kv, true
+			}
+			i.c = nil
+		}
 		for ; i.i < len(i.n.keys); i.i++ {
 			k := i.n.keys[i.i]
 			if i.from != nil && k < *i.from {
@@ -128,6 +192,14 @@ SEARCH:
 			if i.to != nil && k >= *i.to {
 				i.n = nil
 				break SEARCH
+			}
+			if c, ok := i.n.values[i.i].(collision); ok {
+				i.c = c
+				i.ckey = i.n.keys[i.i]
+				kv := KeyValue[K]{Key: i.ckey, Value: c[0]}
+				i.ci = 1
+				i.i++
+				return kv, true
 			}
 			kv := KeyValue[K]{Key: i.n.keys[i.i], Value: i.n.values[i.i]}
 			i.i++
@@ -187,7 +259,11 @@ func (t *BPTree[K]) First() (KeyValue[K], bool) {
 	for n.isInternal() {
 		n = n.children[0]
 	}
-	return KeyValue[K]{Key: n.keys[0], Value: n.values[0]}, true
+	v := n.values[0]
+	if c, ok := v.(collision); ok {
+		v = c[0]
+	}
+	return KeyValue[K]{Key: n.keys[0], Value: v}, true
 }
 
 // Last returns (key-value, true) for the maximal key in tree, or (zero, false) if tree is empty.
@@ -199,7 +275,11 @@ func (t *BPTree[K]) Last() (KeyValue[K], bool) {
 	for n.isInternal() {
 		n = n.children[len(n.children)-1]
 	}
-	return KeyValue[K]{Key: n.keys[len(n.keys)-1], Value: n.values[len(n.values)-1]}, true
+	v := n.values[len(n.values)-1]
+	if c, ok := v.(collision); ok {
+		v = c[len(c)-1]
+	}
+	return KeyValue[K]{Key: n.keys[len(n.keys)-1], Value: v}, true
 }
 
 type node[K Key] struct {
@@ -235,13 +315,13 @@ func (n *node[K]) isLeaf() bool {
 	return n.values != nil
 }
 
-func (n *node[K]) insert(key K, val any) (ok bool, key2 K, n2 *node[K]) {
+func (n *node[K]) insert(key K, val any, replace bool) (ok bool, key2 K, n2 *node[K]) {
 	if n.isLeaf() {
-		return n.insertToLeaf(key, val)
+		return n.insertToLeaf(key, val, replace)
 	}
 	for i, c := range n.children {
 		if i == len(n.keys) || key < n.keys[i] {
-			ok, key2, n2 = c.insert(key, val)
+			ok, key2, n2 = c.insert(key, val, replace)
 			break
 		}
 	}
@@ -251,15 +331,25 @@ func (n *node[K]) insert(key K, val any) (ok bool, key2 K, n2 *node[K]) {
 	return
 }
 
-func (n *node[K]) insertToLeaf(key K, val any) (ok bool, key2 K, n2 *node[K]) {
+func (n *node[K]) insertToLeaf(key K, val any, replace bool) (ok bool, key2 K, n2 *node[K]) {
 	var pos int
 	for i, k := range n.keys {
 		if k > key {
 			break
 		}
 		if k == key {
-			n.values[i] = val
-			return false, key2, n2
+			if replace {
+				n.values[i] = val
+				return false, key2, n2
+			} else {
+				if c, ok := n.values[i].(collision); !ok {
+					c = collision{n.values[i], val}
+					n.values[i] = c
+				} else {
+					n.values[i] = append(c, val)
+				}
+				return true, key2, n2
+			}
 		}
 		if k < key {
 			pos = i + 1
@@ -369,15 +459,15 @@ func (n *node[K]) insertToInternal(key K, child *node[K]) (key2 K, n2 *node[K]) 
 	return
 }
 
-func (n *node[K]) delete(key K) (val any, ok bool) {
+func (n *node[K]) delete(key K, all bool, idx int) (val any, ok bool) {
 	if n.isLeaf() {
-		return n.deleteFromLeaf(key)
+		return n.deleteFromLeaf(key, all, idx)
 	}
 	var i int
 	var c *node[K]
 	for i, c = range n.children {
 		if i == len(n.keys) || key < n.keys[i] {
-			val, ok = c.delete(key)
+			val, ok = c.delete(key, all, idx)
 			break
 		}
 	}
@@ -395,10 +485,40 @@ func (n *node[K]) delete(key K) (val any, ok bool) {
 	return
 }
 
-func (n *node[K]) deleteFromLeaf(key K) (val any, ok bool) {
+func (n *node[K]) deleteFromLeaf(key K, all bool, idx int) (val any, ok bool) {
 	for i, k := range n.keys {
 		if k == key {
-			val = n.values[i]
+			if all {
+				if c, ok := n.values[i].(collision); !ok {
+					val = collision{n.values[i]}
+				} else {
+					val = c
+				}
+			} else {
+				if c, ok := n.values[i].(collision); !ok {
+					if idx > 0 {
+						return nil, false
+					}
+					val = n.values[i]
+				} else {
+					if idx >= len(c) {
+						return nil, false
+					}
+					if idx < 0 {
+						val = c[len(c)-1]
+						c[len(c)-1] = nil
+						n.values[i] = c[:len(c)-1]
+					} else {
+						val = c[idx]
+						copy(c[idx:], c[idx+1:])
+						c[len(c)-1] = nil
+						n.values[i] = c[:len(c)-1]
+					}
+					if len(c) != 0 {
+						return val, true
+					}
+				}
+			}
 			ok = true
 			copy(n.keys[i:len(n.keys)-1], n.keys[i+1:len(n.keys)])
 			copy(n.values[i:len(n.values)-1], n.values[i+1:len(n.values)])
