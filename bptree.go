@@ -141,7 +141,6 @@ func (t *BPTree[K]) DeleteOne(key K, idx int) (val any, ok bool) {
 	return t.delete(key, false, idx)
 }
 
-
 // DeleteAll is like Delete, but removes all values id multiply are.
 func (t *BPTree[K]) DeleteAll(key K) (vals []any, ok bool) {
 	if v, ok := t.delete(key, true, 0); ok {
