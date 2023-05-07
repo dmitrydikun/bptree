@@ -131,14 +131,18 @@ func (t *BPTree[K]) insert(key K, val any, replace bool) {
 }
 
 // Delete removes a key-value pair and returns it's (value, true) if success, or (nil, false) if not found.
+// If multiply values are found, last added will be removed.
 func (t *BPTree[K]) Delete(key K) (val any, ok bool) {
 	return t.delete(key, false, -1)
 }
 
+// DeleteOne is like Delete, but removes concrete value if multiply are.
 func (t *BPTree[K]) DeleteOne(key K, idx int) (val any, ok bool) {
 	return t.delete(key, false, idx)
 }
 
+
+// DeleteAll is like Delete, but removes all values id multiply are.
 func (t *BPTree[K]) DeleteAll(key K) (vals []any, ok bool) {
 	if v, ok := t.delete(key, true, 0); ok {
 		return v.(collision), true
