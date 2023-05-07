@@ -28,8 +28,8 @@ const (
 	numKeys            = 1000
 	benchBmax          = 128
 	benchNumKeys       = 1000000
-	numRangeTestKeys   = 30
-	numExtraKeys       = 10
+	numRangeTestKeys   = 50
+	numExtraKeys       = 20
 	leakTestNumKeys    = 1000000
 	leakTestIterations = 100
 	leakTestValueSize  = 7000
@@ -281,12 +281,16 @@ func TestInsert(T *testing.T) {
 }
 
 func makeAppendKeysValues(n int) ([]int, []int) {
-	keys := genKeys(n)
-	keys = append(append(append(append(append([]int{}, keys...), keys...), keys...), keys...), keys...)
+	uniq := genKeys(n)
 	values := genKeys(5*n)
-	shuffleKeys(keys)
-	shuffleKeys(values)
-	return keys, values
+	var keys []int
+	for _, k := range uniq {
+		n := rand.Intn(5) + 1
+		for i := 0; i < n; i ++ {
+			keys = append(keys, k)
+		}
+	}
+	return keys, values[:len(keys)]
 }
 
 func makeTreeAppendWithKeysValues(T *testing.T, b int, keys, values []int) ([]int, []int, *BPTree[int], map[int][]int) {
@@ -427,17 +431,24 @@ func TestDelete(T *testing.T) {
 func TestDeleteAppend(T *testing.T) {
 	b, n := bmax, numKeys
 	keys, _, t, m := makeTreeAppend(T, b, n)
+	//keys, _, t, m := makeTreeAppendWithKeysValues(T, b, []int{3, 3, 3, 3, 3, 2, 2, 2, 2, 0, 0, 1, 1, 4}, []int{3, 3, 3, 3, 3, 2, 2, 2, 2, 0, 0, 1, 1, 4})
 	shuffleKeys(keys)
 	for _, k := range keys {
 		mv, ok := m[k]
 		if !ok {
 			failf(T, t, "key %d not found in comparation map", k)
 		}
-		m[k] = mv[:len(mv)-1]
+		mv = mv[:len(mv)-1]
+		if len(mv) == 0 {
+			delete(m, k)
+		} else {
+			m[k] = mv
+		}
 		t.Delete(k)
 		compareWithMap(T, t, m)
 	}
 	keys, _, t, m = makeTreeAppend(T, b, n)
+	//keys, _, t, m = makeTreeAppendWithKeysValues(T, b, []int{4, 4, 2, 2, 2, 0, 0, 0, 1, 1, 1, 3}, []int{4, 4, 2, 2, 2, 0, 0, 0, 1, 1, 1, 3})
 	shuffleKeys(keys)
 	for _, k := range keys {
 		mv, ok := m[k]
@@ -446,7 +457,12 @@ func TestDeleteAppend(T *testing.T) {
 		}
 		idx := rand.Intn(len(mv))
 		copy(mv[idx:], mv[idx+1:])
-		m[k] = mv[:len(mv)-1]
+		mv = mv[:len(mv)-1]
+		if len(mv) == 0 {
+			delete(m, k)
+		} else {
+			m[k] = mv
+		}
 		t.DeleteOne(k, idx)
 		compareWithMap(T, t, m)
 	}
@@ -669,6 +685,59 @@ func TestRangeAppend(T *testing.T) {
 					fmt.Print(kv.Key)
 				}
 				fmt.Println("]")
+			}
+		}
+	}
+}
+
+func TestIteratorAppend(T *testing.T) {
+	b, n, ne := bmax, numRangeTestKeys, numExtraKeys
+	_, values := makeAppendKeysValues(n)
+	keys, extraKeys := genExtraKeys(n, ne)
+	_, _, t, m := makeTreeAppendWithKeysValues(T, b, keys, values)
+	sort.Ints(keys)
+	fmt.Println(keys)
+	for i, k := range extraKeys {
+		if i != 0 {
+			fmt.Print(", ")
+		}
+		if k == nil {
+			fmt.Print("nil")
+		} else {
+			fmt.Print(*k)
+		}
+	}
+	fmt.Println()
+	for i, from := range extraKeys {
+		for j, to := range extraKeys {
+			iter := t.Iterator(from, to)
+			var mapRange []int
+			keysFrom := i - ne/2
+			if from == nil || keysFrom < 0 {
+				keysFrom = 0
+			}
+			keysTo := j - ne/2
+			if to == nil || keysTo > len(keys) {
+				keysTo = len(keys)
+			}
+			for k := keysFrom; k < keysTo; k++ {
+				if v, ok := m[keys[k]]; ok {
+					mapRange = append(mapRange, v...)
+				}
+			}
+			if len(mapRange) == 0 {
+				if _, ok := iter.Next(); ok {
+					T.Fatalf("len(mapRange) == 0 but iterator not empty")
+				}
+			}
+			for _, mv := range mapRange {
+				if iv, ok := iter.Next(); !ok {
+					T.Fatalf("len(mapRange) == len(iter)")
+				} else {
+					if iv.Value != mv {
+						T.Fatalf("iv.Value (%d) != mv (%d)", iv.Value, mv)
+					}
+				}
 			}
 		}
 	}

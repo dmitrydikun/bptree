@@ -514,7 +514,7 @@ func (n *node[K]) deleteFromLeaf(key K, all bool, idx int) (val any, ok bool) {
 						c[len(c)-1] = nil
 						n.values[i] = c[:len(c)-1]
 					}
-					if len(c) != 0 {
+					if len(n.values[i].(collision)) != 0 {
 						return val, true
 					}
 				}
